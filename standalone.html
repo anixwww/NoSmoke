@@ -1,0 +1,1132 @@
+<!--
+  БЕЗ СИГАРЕТ (ЖИТТЯ БЕЗ НІКОТИНУ) — SINGLE-FILE STANDALONE EDITION
+  Цей файл повністю автономний: містить весь інтерфейс React, стилі Tailwind,
+  аудіо-синтезатор звуків, симуляцію росту дерева, піщинки часу,
+  систему цілей та збереження в LocalStorage.
+  Ви можете відкрити цей файл безпосередньо в будь-якому браузері
+  або передати в будь-який інший ШІ-кодер (Claude, ChatGPT, Cursor тощо).
+-->
+<!DOCTYPE html>
+<html lang="uk" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Без Сигарет — Життя без нікотину (Standalone)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+            mono: ['Space Grotesk', 'monospace']
+          },
+          colors: {
+            brand: {
+              50: '#EAF5F0',
+              100: '#CBDDD7',
+              500: '#1E8A69',
+              600: '#187558',
+              700: '#125C44',
+              accent: '#4CC9A0'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    @keyframes pineCrownSway {
+      0%, 100% {
+        transform: rotate(0deg);
+      }
+      50% {
+        transform: rotate(2.8deg);
+      }
+    }
+    @keyframes pineMidSway {
+      0%, 100% {
+        transform: rotate(0deg);
+      }
+      50% {
+        transform: rotate(1.4deg);
+      }
+    }
+    @keyframes breezeDrift {
+      0% {
+        transform: translateX(-15px);
+        opacity: 0;
+      }
+      50% {
+        opacity: 0.7;
+      }
+      100% {
+        transform: translateX(25px);
+        opacity: 0;
+      }
+    }
+    .animate-pine-crown {
+      transform-origin: 60px 50px;
+      animation: pineCrownSway 3.6s ease-in-out infinite;
+    }
+    .animate-pine-mid {
+      transform-origin: 60px 85px;
+      animation: pineMidSway 4.4s ease-in-out infinite;
+    }
+    .animate-breeze {
+      animation: breezeDrift 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-[#E9F1EE] dark:bg-[#0D1E1B] text-[#12302B] dark:text-[#E4F1ED] min-h-screen transition-colors duration-300">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+
+    // --- SOUND ENGINE (Web Audio API) ---
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      playClick() {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(400, this.ctx.currentTime + 0.05);
+          gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.05);
+        } catch {}
+      }
+      playSuccess() {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, this.ctx.currentTime + i * 0.08);
+            gain.gain.setValueAtTime(0.09, this.ctx.currentTime + i * 0.08);
+            gain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.08 + 0.35);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(this.ctx.currentTime + i * 0.08);
+            osc.stop(this.ctx.currentTime + i * 0.08 + 0.35);
+          });
+        } catch {}
+      }
+    }
+    const sounds = new SoundEngine();
+
+    // --- DATA: TREE SPECIES ---
+    const TREE_SPECIES = [
+      { id: 'pine', name: 'Карпатська Сосна', icon: '🌲', growDays: 14, desc: 'Символ незламності та вічної свіжості гір.' },
+      { id: 'oak', name: 'Козацький Дуб', icon: '🌳', growDays: 21, desc: 'Міць предків та залізна воля до свободи.' },
+      { id: 'apple', name: 'Садова Яблуня', icon: '🍎', growDays: 16, desc: 'Солодкі плоди твого нового життя.' },
+      { id: 'sakura', name: 'Весняна Сакура', icon: '🌸', growDays: 18, desc: 'Цвітіння і відродження дихання.' },
+      { id: 'maple', name: 'Золотий Клен', icon: '🍁', growDays: 15, desc: 'Гармонія спокою та чистого розуму.' }
+    ];
+
+    // --- DATA: HEALTH MILESTONES ---
+    const HEALTH_MILESTONES = [
+      { t: 20 * 60 * 1000, title: '20 хвилин', icon: '❤️', desc: 'Пульс і тиск нормалізуються. Кровообіг у руках і ногах покращується.' },
+      { t: 8 * 3600 * 1000, title: '8 годин', icon: '🩸', desc: 'Рівень чадного газу впав удвічі. Рівень кисню в крові сягнув норми.' },
+      { t: 24 * 3600 * 1000, title: '24 години', icon: '🫀', desc: 'Чадний газ виведений повністю. Ризик раптового серцевого нападу почав знижуватись.' },
+      { t: 48 * 3600 * 1000, title: '48 годин', icon: '👅', desc: 'Нікотин повністю виведено. Смакові рецептори та нюх стрімко повертаються.' },
+      { t: 72 * 3600 * 1000, title: '72 години', icon: '⚡', desc: 'Бронхіоли розслабляються, дихати легше. Фізичний пік ломки позаду!' },
+      { t: 14 * 24 * 3600 * 1000, title: '2 тижні', icon: '🫁', desc: 'Кровообіг покращився на 30%. Ходьба та спорт даються без задишки.' },
+      { t: 30 * 24 * 3600 * 1000, title: '1 місяць', icon: '🏃', desc: 'Кашель і свист у грудях зникають. Енергія повертається на повну силу.' },
+      { t: 90 * 24 * 3600 * 1000, title: '3 місяці', icon: '✨', desc: 'Об’єм легень зріс на 10%. Легеневі війки очищують дихальні шляхи.' },
+      { t: 365 * 24 * 3600 * 1000, title: '1 рік', icon: '👑', desc: 'Ризик ішемічної хвороби серця зменшився вдвічі порівняно з курцем!' }
+    ];
+
+    // --- DATA: GOALS PRESETS ---
+    const GOAL_PRESETS = [
+      { name: 'Святкова вечеря', amount: 1000, icon: '🍽️', desc: 'Нагородити себе за чисті дні' },
+      { name: 'Бездротові навушники', amount: 3500, icon: '🎧', desc: 'Якісна музика для прогулянок' },
+      { name: 'Бігові кросівки', amount: 4200, icon: '👟', desc: 'Спорт і біг без задишки' },
+      { name: 'Абонемент у зал', amount: 5500, icon: '🏊', desc: 'Повне відновлення форми' },
+      { name: 'Смарт-годинник', amount: 7500, icon: '⌚', desc: 'Контроль пульсу та сну' },
+      { name: 'Вікенд у Карпатах', amount: 9500, icon: '🌲', desc: 'Чисте гірське повітря для легень' },
+      { name: 'Новий смартфон', amount: 25000, icon: '📱', desc: 'Матеріальна цінність замість диму' }
+    ];
+
+    // --- MAIN REACT APPLICATION ---
+    function App() {
+      // LocalStorage State Keys
+      const [startDate, setStartDate] = useState(() => {
+        const v = localStorage.getItem('bez_start');
+        return v ? Number(v) : Date.now() - 36 * 3600 * 1000;
+      });
+
+      const [money, setMoney] = useState(() => {
+        const v = localStorage.getItem('bez_money');
+        return v ? JSON.parse(v) : { perDay: 15, packPrice: 100, packSize: 20, cur: '₴' };
+      });
+
+      const [goals, setGoals] = useState(() => {
+        const v = localStorage.getItem('bez_goals');
+        return v ? JSON.parse(v) : {
+          base: 0,
+          queue: [
+            { id: 'g1', name: 'Бездротові навушники', amount: 3500, icon: '🎧' },
+            { id: 'g2', name: 'Вікенд у горах', amount: 9500, icon: '🌲' }
+          ],
+          done: []
+        };
+      });
+
+      const [treeState, setTreeState] = useState(() => {
+        const v = localStorage.getItem('bez_tree');
+        return v ? JSON.parse(v) : {
+          forest: [],
+          current: { speciesId: 'pine', plantedAt: Date.now() - 3600000, growth: 12, water: 90, weeds: [] }
+        };
+      });
+
+      const [reasons, setReasons] = useState(() => {
+        const v = localStorage.getItem('bez_reasons');
+        return v ? JSON.parse(v) : [
+          'Я хочу дихати на повні груди без задишки',
+          'Моє серце і судини будуть міцними й здоровими',
+          'Я хочу бути сильним прикладом для своїх близьких',
+          'Гроші мають іти на мрії, а не на попіл і дим'
+        ];
+      });
+
+      const [daysRating, setDaysRating] = useState(() => {
+        const v = localStorage.getItem('bez_days');
+        return v ? JSON.parse(v) : {};
+      });
+
+      const [activeTab, setActiveTab] = useState('counter');
+      const [diffMs, setDiffMs] = useState(() => Math.max(0, Date.now() - startDate));
+      const [isSosOpen, setIsSosOpen] = useState(false);
+      const [isSetupOpen, setIsSetupOpen] = useState(false);
+      const [newReasonText, setNewReasonText] = useState('');
+
+      // Timer
+      useEffect(() => {
+        const tick = () => setDiffMs(Math.max(0, Date.now() - startDate));
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+      }, [startDate]);
+
+      // Sync to localStorage
+      useEffect(() => { localStorage.setItem('bez_start', String(startDate)); }, [startDate]);
+      useEffect(() => { localStorage.setItem('bez_money', JSON.stringify(money)); }, [money]);
+      useEffect(() => { localStorage.setItem('bez_goals', JSON.stringify(goals)); }, [goals]);
+      useEffect(() => { localStorage.setItem('bez_tree', JSON.stringify(treeState)); }, [treeState]);
+      useEffect(() => { localStorage.setItem('bez_reasons', JSON.stringify(reasons)); }, [reasons]);
+      useEffect(() => { localStorage.setItem('bez_days', JSON.stringify(daysRating)); }, [daysRating]);
+
+      // Metrics calculation
+      const totalDays = Math.floor(diffMs / (24 * 3600 * 1000));
+      const cigsAvoided = money ? (diffMs / (24 * 3600 * 1000)) * money.perDay : 0;
+      const totalSaved = money ? (cigsAvoided / money.packSize) * money.packPrice : 0;
+      const dailyCost = money ? (money.perDay / money.packSize) * money.packPrice : 0;
+
+      // Active goal
+      const activeGoal = goals.queue[0];
+      const withinCurrentGoal = activeGoal ? Math.max(0, totalSaved - goals.base) : 0;
+      const activeGoalPct = activeGoal ? Math.min(100, Math.floor((withinCurrentGoal / activeGoal.amount) * 100)) : 0;
+
+      // Goal completion logic:
+      // When goal is fulfilled, it moves to 'done' and base is updated to current totalSaved,
+      // so accumulation for the NEXT goal starts from 0 at this exact moment!
+      const completeActiveGoal = () => {
+        if (!activeGoal) return;
+        sounds.playSuccess();
+        const completed = { ...activeGoal, at: Date.now(), total: activeGoal.amount };
+        setGoals(prev => ({
+          ...prev,
+          base: totalSaved, // Accumulation for next goal starts from current totalSaved!
+          queue: prev.queue.slice(1),
+          done: [completed, ...(prev.done || [])]
+        }));
+      };
+
+      // Format time
+      const days = Math.floor(diffMs / (24 * 3600 * 1000));
+      const hours = Math.floor((diffMs % (24 * 3600 * 1000)) / (3600 * 1000));
+      const minutes = Math.floor((diffMs % (3600 * 1000)) / (60 * 1000));
+      const seconds = Math.floor((diffMs % (60 * 1000)) / 1000);
+
+      // Formatted human quit time with Ukrainian declensions
+      const humanQuitTimeText = useMemo(() => {
+        const getDaysWord = (d) => {
+          const m10 = d % 10;
+          const m100 = d % 100;
+          if (m100 >= 11 && m100 <= 14) return 'днів';
+          if (m10 === 1) return 'день';
+          if (m10 >= 2 && m10 <= 4) return 'дні';
+          return 'днів';
+        };
+
+        const getHoursWord = (h) => {
+          const m10 = h % 10;
+          const m100 = h % 100;
+          if (m100 >= 11 && m100 <= 14) return 'годин';
+          if (m10 === 1) return 'година';
+          if (m10 >= 2 && m10 <= 4) return 'години';
+          return 'годин';
+        };
+
+        if (days > 0) {
+          return `Ти не куриш ${days} ${getDaysWord(days)}, ${hours} ${getHoursWord(hours)} і ${minutes}хв`;
+        }
+        if (hours > 0) {
+          return `Ти не куриш ${hours} ${getHoursWord(hours)} і ${minutes}хв`;
+        }
+        return `Ти не куриш ${Math.max(1, minutes)}хв`;
+      }, [days, hours, minutes]);
+
+      // Packs avoided text (e.g. 123.8 пачки)
+      const packsCountVal = money ? (cigsAvoided / money.packSize) : 0;
+      const packsStr = packsCountVal.toFixed(1);
+      const packsAvoidedText = packsStr.endsWith('.0')
+        ? (() => {
+            const iv = Math.round(packsCountVal);
+            const m10 = iv % 10;
+            const m100 = iv % 100;
+            if (m100 >= 11 && m100 <= 14) return `${iv} пачок`;
+            if (m10 === 1) return `${iv} пачка`;
+            if (m10 >= 2 && m10 <= 4) return `${iv} пачки`;
+            return `${iv} пачок`;
+          })()
+        : `${packsStr} пачки`;
+
+      return (
+        <div className="min-h-screen flex flex-col justify-between max-w-md mx-auto px-4 pt-6 pb-24">
+          {/* Header (No logo or brand text as requested) */}
+          <header className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-1.5 text-xs text-[#55726B] dark:text-[#8FAAA3]" title="Еко-режим батареї">
+              <span>🔋</span>
+            </div>
+            <button
+              onClick={() => {
+                document.documentElement.classList.toggle('dark');
+                sounds.playClick();
+              }}
+              className="p-2 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-xl text-xs font-bold text-[#55726B] dark:text-[#8FAAA3]"
+            >
+              🌓 Тема
+            </button>
+          </header>
+
+          {/* TAB 1: COUNTER (ГОЛОВНА) */}
+          {activeTab === 'counter' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* 1. КАРТКА ЛЮДИНИ */}
+              <div className="p-4 bg-white/80 dark:bg-[#112723]/80 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-2xl shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1E8A69]/20 to-[#4CC9A0]/30 dark:from-[#1E8A69]/40 dark:to-[#4CC9A0]/20 flex items-center justify-center text-xl flex-none border border-[#1E8A69]/30 shadow-xs">
+                    👤
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-[#1E8A69] dark:bg-[#4CC9A0] animate-pulse"></span>
+                      <span className="text-[11px] font-medium text-[#55726B] dark:text-[#8FAAA3]">
+                        Час оновлюється щохвилинно
+                      </span>
+                    </div>
+                    <h1 className="text-base sm:text-lg font-bold text-[#12302B] dark:text-[#E4F1ED] leading-snug">
+                      {humanQuitTimeText}
+                    </h1>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. ЕКОНОМІЧНА СКЛАДОВА / МРІЇ */}
+              <div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  {/* 1. ЗАОЩАДЖЕНО */}
+                  <button
+                    onClick={() => { sounds.playClick(); setActiveTab('money'); }}
+                    className="p-3 rounded-2xl bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-[#1E8A69] text-left transition-all cursor-pointer shadow-2xs group"
+                  >
+                    <span className="text-[11px] uppercase tracking-wider font-semibold text-[#55726B] dark:text-[#8FAAA3] block mb-0.5">
+                      Заощаджено 💰
+                    </span>
+                    <span className="text-sm sm:text-base font-bold font-mono text-[#1E8A69] dark:text-[#4CC9A0] block">
+                      {Math.floor(totalSaved)} {money.cur}
+                    </span>
+                    <span className="text-[10px] text-[#55726B] dark:text-[#8FAAA3] block opacity-80 mt-0.5">
+                      Загальний капітал
+                    </span>
+                  </button>
+
+                  {/* 2. НЕ ВИКУРЕНО */}
+                  <button
+                    onClick={() => { sounds.playClick(); setActiveTab('health'); }}
+                    className="p-3 rounded-2xl bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-[#1E8A69] text-left transition-all cursor-pointer shadow-2xs group"
+                  >
+                    <span className="text-[11px] uppercase tracking-wider font-semibold text-[#55726B] dark:text-[#8FAAA3] block mb-0.5">
+                      Не викурено 🚭
+                    </span>
+                    <span className="text-sm sm:text-base font-bold font-mono text-[#12302B] dark:text-[#E4F1ED] block">
+                      {Math.floor(cigsAvoided)} шт.
+                    </span>
+                    <span className="text-[10px] text-[#55726B] dark:text-[#8FAAA3] block opacity-80 mt-0.5">
+                      {packsAvoidedText}
+                    </span>
+                  </button>
+
+                  {/* 3. ВИТРАЧЕНО НА МРІЇ */}
+                  <button
+                    onClick={() => { sounds.playClick(); setActiveTab('money'); }}
+                    className="p-3 rounded-2xl bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-amber-500 text-left transition-all cursor-pointer shadow-2xs group"
+                  >
+                    <span className="text-[11px] uppercase tracking-wider font-semibold text-[#55726B] dark:text-[#8FAAA3] block mb-0.5">
+                      Витрачено на мрії 🎁
+                    </span>
+                    <span className="text-sm sm:text-base font-bold font-mono text-amber-600 dark:text-amber-400 block">
+                      {Math.floor((goals.done || []).reduce((a, g) => a + (g.total || g.amount), 0))} {money.cur}
+                    </span>
+                    <span className="text-[10px] text-[#55726B] dark:text-[#8FAAA3] block opacity-80 mt-0.5">
+                      {(goals.done || []).length} здійснено
+                    </span>
+                  </button>
+
+                  {/* 4. ДОСТУПНО НА МРІЇ */}
+                  <button
+                    onClick={() => { sounds.playClick(); setActiveTab('money'); }}
+                    className="p-3 rounded-2xl bg-[#1E8A69]/10 dark:bg-[#1E8A69]/20 border border-[#1E8A69]/40 hover:border-[#1E8A69] text-left transition-all cursor-pointer shadow-2xs group"
+                  >
+                    <span className="text-[11px] uppercase tracking-wider font-semibold text-[#1E8A69] dark:text-[#4CC9A0] block mb-0.5">
+                      Доступно на мрії ✨
+                    </span>
+                    <span className="text-sm sm:text-base font-bold font-mono text-[#1E8A69] dark:text-[#4CC9A0] block">
+                      {Math.floor(Math.max(0, totalSaved - (goals.base || 0)))} {money.cur}
+                    </span>
+                    <span className="text-[10px] text-[#55726B] dark:text-[#8FAAA3] block opacity-80 mt-0.5">
+                      Вільний баланс
+                    </span>
+                  </button>
+                </div>
+
+                {/* Active Goal Widget */}
+                {activeGoal && (
+                  <button
+                    onClick={() => { sounds.playClick(); setActiveTab('money'); }}
+                    className="w-full p-3 bg-gradient-to-r from-white/90 to-[#1E8A69]/10 dark:from-[#112723]/90 dark:to-[#4CC9A0]/10 border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-[#1E8A69] rounded-2xl transition-all cursor-pointer shadow-2xs group text-left"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[#1E8A69] dark:text-[#4CC9A0] flex items-center gap-1">
+                        <span>🎯</span>
+                        <span>Поточна мета</span>
+                      </span>
+                      <span className="text-xs font-mono font-bold text-[#1E8A69] dark:text-[#4CC9A0]">{activeGoalPct}%</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-bold text-[#12302B] dark:text-[#E4F1ED] mb-1.5">
+                      <span className="truncate">{activeGoal.icon || '🎯'} {activeGoal.name}</span>
+                      <span className="text-[11px] text-[#55726B] dark:text-[#8FAAA3] font-normal flex-none">{Math.floor(withinCurrentGoal)} / {activeGoal.amount} {money.cur}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-[#CBDDD7] dark:bg-[#1D3832] rounded-full overflow-hidden">
+                      <div className="h-full bg-[#1E8A69] dark:bg-[#4CC9A0] rounded-full transition-all duration-500" style={{ width: `${Math.max(4, activeGoalPct)}%` }}></div>
+                    </div>
+                  </button>
+                )}
+              </div>
+
+              {/* 3. ІНФОРМАЦІЯ ПРО ПОТОЧНИЙ ЕТАП ЗДОРОВ'Я */}
+              <div
+                onClick={() => { sounds.playClick(); setActiveTab('health'); }}
+                className="p-3.5 bg-gradient-to-r from-[#1E8A69]/10 to-[#5B54C8]/10 dark:from-[#4CC9A0]/15 dark:to-[#A29BFF]/15 border border-[#1E8A69]/25 dark:border-[#4CC9A0]/30 rounded-2xl cursor-pointer hover:border-[#1E8A69]/50 transition-all flex items-start gap-3 group shadow-xs"
+              >
+                <div className="p-2 rounded-xl bg-white dark:bg-[#112723] text-xl shadow-xs flex-none mt-0.5">
+                  🫀
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#1E8A69] dark:text-[#4CC9A0]">
+                      Тіло відновлюється
+                    </span>
+                    <span className="text-xs text-[#55726B] dark:text-[#8FAAA3] group-hover:underline font-medium">
+                      Шкали →
+                    </span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-[#12302B] dark:text-[#E4F1ED]">
+                    {diffMs < 20 * 60 * 1000
+                      ? 'Пульс і тиск приходять у фізіологічну норму. Поліпшується кровообіг у кінцівках.'
+                      : diffMs < 8 * 3600 * 1000
+                      ? 'Рівень чадного газу (CO) в крові впав удвічі. Кисень у клітинах зростає.'
+                      : diffMs < 24 * 3600 * 1000
+                      ? 'Чадний газ повністю виведений із організму. Легені починають очищуватися від слизу.'
+                      : 'Нікотин повністю виведено з тіла! Смакові рецептори та нюх відновлюють яскравість.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* 4. ПІЩИНКИ ЧАСУ */}
+              <div className="p-4 bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-2xl shadow-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#12302B] dark:text-[#E4F1ED]">
+                    <span>✨</span>
+                    <span>Піщинки часу</span>
+                  </div>
+                  <button
+                    onClick={() => { sounds.playClick(); setActiveTab('sand'); }}
+                    className="text-xs text-[#55726B] dark:text-[#8FAAA3] hover:text-[#1E8A69] dark:hover:text-[#4CC9A0] font-medium transition-colors"
+                  >
+                    Медитація →
+                  </button>
+                </div>
+
+                <div
+                  onClick={() => { sounds.playClick(); setActiveTab('sand'); }}
+                  className="flex justify-center items-center gap-2 py-3 bg-[#CBDDD7]/20 dark:bg-[#1D3832]/30 rounded-xl mb-2 cursor-pointer border border-[#B7CDC6]/30 hover:border-[#1E8A69] text-2xl transition-all"
+                >
+                  {totalDays >= 10000 && <span title="10 000 днів">🔴</span>}
+                  {totalDays >= 1000 && <span title="1 000 днів">🟢</span>}
+                  {totalDays >= 100 && <span title="100 днів">🟣</span>}
+                  {totalDays >= 10 && <span title="10 днів">🔷</span>}
+                  <span title="1 день">🟡</span>
+                </div>
+
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[#55726B] dark:text-[#8FAAA3]">
+                    {totalDays > 0 ? `${totalDays} сяючих кристалів` : '🌱 Перша піщинка формується...'}
+                  </span>
+                  <span className="font-semibold text-[#12302B] dark:text-[#E4F1ED]">
+                    {totalDays} дн.
+                  </span>
+                </div>
+              </div>
+
+              {/* 5. КАРПАТСЬКА СОСНА (З АНІМАЦІЄЮ ХИТАННЯ ВЕРХІВОК ДЕРЕВ) */}
+              <button
+                onClick={() => { sounds.playClick(); setActiveTab('tree'); }}
+                className="w-full p-4 bg-white/80 dark:bg-[#112723]/80 hover:bg-white dark:hover:bg-[#112723] border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-[#1E8A69] rounded-2xl transition-all cursor-pointer shadow-xs active:scale-[0.99] group text-left relative overflow-hidden"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-sm font-bold text-[#12302B] dark:text-[#E4F1ED] truncate">
+                        Карпатська Сосна
+                      </h3>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#1E8A69]/10 text-[#1E8A69] dark:text-[#4CC9A0] font-bold">
+                        {Math.floor(treeState.current?.growth || 12)}% ріст
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#55726B] dark:text-[#8FAAA3] mb-1">
+                      Чисті легені та свіжість гір • Торкніться для догляду
+                    </p>
+                    <span className="text-[11px] text-[#1E8A69] dark:text-[#4CC9A0] font-medium flex items-center gap-1">
+                      <span>Сад дерев →</span>
+                    </span>
+                  </div>
+
+                  {/* Animated Swaying Carpathian Pine Tree Illustration */}
+                  <div className="relative w-24 h-24 flex-none flex items-center justify-center">
+                    {/* Gentle breeze lines */}
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
+                      <path
+                        d="M10,25 Q35,18 60,24 T95,22"
+                        fill="none"
+                        stroke="#4CC9A0"
+                        strokeWidth="1.2"
+                        strokeDasharray="4 6"
+                        className="animate-breeze opacity-60"
+                      />
+                      <path
+                        d="M5,50 Q30,44 55,50 T90,46"
+                        fill="none"
+                        stroke="#1E8A69"
+                        strokeWidth="1"
+                        strokeDasharray="3 5"
+                        className="animate-breeze opacity-40"
+                        style={{ animationDelay: '1.4s' }}
+                      />
+                    </svg>
+
+                    {/* Pine Tree SVG with swaying crown and mid tiers */}
+                    <svg viewBox="0 0 120 140" className="w-full h-full drop-shadow-sm select-none" style={{ overflow: 'visible' }}>
+                      <ellipse cx="60" cy="132" rx="42" ry="6" fill="#85532F" opacity="0.25" />
+                      <ellipse cx="60" cy="130" rx="34" ry="4" fill="#15803D" opacity="0.4" />
+
+                      {/* Small background tree swaying */}
+                      <g transform="translate(80, 66) scale(0.42)" className="animate-pine-crown" style={{ animationDelay: '1s' }}>
+                        <rect x="26" y="65" width="8" height="30" fill="#664C35" rx="3" />
+                        <polygon points="30,10 5,60 55,60" fill="#1B6B45" opacity="0.8" />
+                        <polygon points="30,30 0,80 60,80" fill="#15803D" opacity="0.75" />
+                      </g>
+
+                      {/* Trunk */}
+                      <path d="M56,86 L54,130 L66,130 L64,86 Z" fill="#6B4829" />
+                      <path d="M58,94 L57,125" stroke="#4D331B" strokeWidth="1.5" strokeLinecap="round" />
+
+                      {/* Bottom tier */}
+                      <polygon points="60,65 18,105 44,103 30,118 90,118 76,103 102,105" fill="#145A32" />
+                      <polygon points="60,65 24,102 46,100 36,114 84,114 74,100 96,102" fill="#1B6B45" />
+
+                      {/* Mid tier swaying */}
+                      <g className="animate-pine-mid">
+                        <polygon points="60,42 26,78 48,76 38,88 82,88 72,76 94,78" fill="#1B6B45" />
+                        <polygon points="60,42 32,75 50,73 42,84 78,84 70,73 88,75" fill="#228B53" />
+                      </g>
+
+                      {/* Top crown swaying */}
+                      <g className="animate-pine-crown">
+                        <polygon points="60,12 36,52 50,50 42,60 78,60 70,50 84,52" fill="#228B53" />
+                        <polygon points="60,12 42,48 52,47 46,56 74,56 68,47 78,48" fill="#2F9360" />
+                        <circle cx="60" cy="12" r="2.5" fill="#4CC9A0" opacity="0.9" />
+                        <polygon points="60,6 62,12 60,10 58,12" fill="#86EFAC" />
+                      </g>
+                    </svg>
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* TAB 2: HEALTH (ЗДОРОВ'Я) */}
+          {activeTab === 'health' && (
+            <div className="space-y-3 animate-in fade-in duration-200">
+              <h2 className="text-lg font-bold">Очищення та регенерація тіла</h2>
+              <div className="space-y-2.5">
+                {HEALTH_MILESTONES.map((hm, i) => {
+                  const passed = diffMs >= hm.t;
+                  const pct = Math.min(100, Math.floor((diffMs / hm.t) * 100));
+                  return (
+                    <div key={i} className={`p-3.5 rounded-2xl border ${passed ? 'bg-[#1E8A69]/10 border-[#1E8A69]/40' : 'bg-white/60 dark:bg-[#112723]/60 border-[#B7CDC6] dark:border-[#2A4A43]'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl">{hm.icon}</span>
+                          <span className="text-xs font-bold">{hm.title}</span>
+                        </div>
+                        <span className="text-xs font-bold text-[#1E8A69] dark:text-[#4CC9A0]">{passed ? '✅ Досягнуто' : `${pct}%`}</span>
+                      </div>
+                      <p className="text-xs text-[#55726B] dark:text-[#8FAAA3]">{hm.desc}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: MONEY & GOALS (ЦІЛІ ТА ФІНАНСИ) */}
+          {activeTab === 'money' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Active Hero Goal */}
+              {activeGoal ? (
+                <div className="p-4 bg-gradient-to-br from-white/95 to-[#EAF5F0]/90 dark:from-[#112723]/95 dark:to-[#0D221E]/90 border-2 border-[#1E8A69]/40 rounded-3xl shadow-xs">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-2xl p-2 bg-[#1E8A69]/10 rounded-xl">{activeGoal.icon || '🎯'}</span>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-[#1E8A69] dark:text-[#4CC9A0]">Активна ціль</span>
+                        <h3 className="text-sm font-bold text-[#12302B] dark:text-[#E4F1ED]">{activeGoal.name}</h3>
+                      </div>
+                    </div>
+                    <span className="text-lg font-black font-mono text-[#1E8A69] dark:text-[#4CC9A0]">{activeGoalPct}%</span>
+                  </div>
+                  <div className="w-full h-2.5 bg-[#CBDDD7] dark:bg-[#1D3832] rounded-full overflow-hidden mb-2">
+                    <div className="h-full bg-[#1E8A69] dark:bg-[#4CC9A0] rounded-full" style={{ width: `${Math.max(4, activeGoalPct)}%` }}></div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-[#55726B] dark:text-[#8FAAA3] mb-3">
+                    <span>Накопичено: <strong>{Math.floor(withinCurrentGoal)} {money.cur}</strong> з {activeGoal.amount} {money.cur}</span>
+                    <span>Залишилось: {Math.max(0, activeGoal.amount - Math.floor(withinCurrentGoal))} {money.cur}</span>
+                  </div>
+
+                  {/* Complete Goal Button */}
+                  <button
+                    onClick={completeActiveGoal}
+                    className="w-full py-2.5 bg-[#1E8A69] hover:bg-[#187558] text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>🎉 Придбано! Записати у виконані</span>
+                  </button>
+                  <p className="text-[10px] text-[#55726B] dark:text-[#8FAAA3] text-center mt-1.5">
+                    * Після виконання накопичення на наступну ціль почнеться з поточної суми!
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 bg-white/70 dark:bg-[#112723]/70 border border-dashed border-[#B7CDC6] rounded-2xl text-center">
+                  <p className="text-xs text-[#55726B] dark:text-[#8FAAA3]">Немає активної цілі. Оберіть із шаблонів або додайте нову!</p>
+                </div>
+              )}
+
+              {/* Goal Presets */}
+              <div>
+                <h4 className="text-xs font-bold uppercase text-[#55726B] dark:text-[#8FAAA3] mb-2">Швидкі ідеї-шаблони</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {GOAL_PRESETS.map((p, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        sounds.playClick();
+                        setGoals(prev => ({
+                          ...prev,
+                          queue: [...prev.queue, { id: `gp-${Date.now()}-${i}`, name: p.name, amount: p.amount, icon: p.icon }]
+                        }));
+                      }}
+                      className="p-2.5 bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-[#1E8A69] rounded-xl text-left"
+                    >
+                      <div className="text-lg mb-0.5">{p.icon}</div>
+                      <div className="text-xs font-bold truncate">{p.name}</div>
+                      <div className="text-[11px] font-mono text-[#1E8A69] dark:text-[#4CC9A0]">{p.amount} {money.cur}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Completed Goals */}
+              {(goals.done || []).length > 0 && (
+                <div className="p-3 bg-white/60 dark:bg-[#112723]/60 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-2xl">
+                  <h4 className="text-xs font-bold text-[#1E8A69] dark:text-[#4CC9A0] mb-2">🏆 Зал слави (Виконані цілі)</h4>
+                  <div className="space-y-1.5">
+                    {goals.done.map((d, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs py-1 px-2 bg-white/50 dark:bg-[#112723] rounded-lg">
+                        <span>{d.icon || '🎁'} {d.name}</span>
+                        <span className="font-mono text-[#1E8A69] dark:text-[#4CC9A0]">+{d.total} {money.cur}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Financial Tariff */}
+              <div className="p-4 bg-white/80 dark:bg-[#112723]/80 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-2xl">
+                <span className="text-xs font-bold block mb-1">Скарбничка</span>
+                <div className="text-2xl font-extrabold font-mono text-[#1E8A69] dark:text-[#4CC9A0]">
+                  {Math.floor(totalSaved)} {money.cur}
+                </div>
+                <div className="text-xs text-[#55726B] dark:text-[#8FAAA3] mt-1">
+                  ~{dailyCost.toFixed(0)} {money.cur}/день • {(dailyCost * 30).toFixed(0)} {money.cur}/місяць
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: STATE SURVEY (СТАН) */}
+          {activeTab === 'state' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <h2 className="text-lg font-bold">Щоденний стан та настрій</h2>
+              <div className="p-4 bg-white/80 dark:bg-[#112723]/80 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-2xl space-y-3">
+                <p className="text-xs text-[#55726B] dark:text-[#8FAAA3]">Як ти почуваєшся сьогодні?</p>
+                <div className="flex justify-between text-2xl">
+                  {['😫', '😕', '😐', '🙂', '🤩'].map((emoji, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        sounds.playClick();
+                        const key = new Date().toISOString().slice(0, 10);
+                        setDaysRating(prev => ({ ...prev, [key]: { mood: idx + 1 } }));
+                        alert('Настрій успішно зафіксовано!');
+                      }}
+                      className="p-2 hover:scale-125 transition-transform"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: TREE GARDEN (САД) */}
+          {activeTab === 'tree' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold">Сад життя</h2>
+                <button onClick={() => setActiveTab('counter')} className="text-xs text-[#1E8A69] font-bold">← Назад</button>
+              </div>
+              <div className="p-8 bg-gradient-to-b from-[#87CEEB]/20 to-[#90EE90]/20 dark:from-[#0B1E1A] dark:to-[#05110E] border border-[#B7CDC6] dark:border-[#2A4A43] rounded-3xl text-center">
+                <div className="text-7xl mb-3 animate-bounce">🌲</div>
+                <h3 className="text-base font-bold">Карпатська Сосна</h3>
+                <div className="w-full h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden my-3">
+                  <div className="h-full bg-[#1E8A69]" style={{ width: `${Math.floor(treeState.current?.growth || 12)}%` }}></div>
+                </div>
+                <p className="text-xs text-[#55726B] dark:text-[#8FAAA3]">
+                  Ріст: {Math.floor(treeState.current?.growth || 12)}% • Вологість: 100%
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  sounds.playClick();
+                  setTreeState(prev => ({
+                    ...prev,
+                    current: prev.current ? { ...prev.current, growth: Math.min(100, prev.current.growth + 5) } : null
+                  }));
+                }}
+                className="w-full py-2.5 bg-[#1E8A69] text-white font-bold text-xs rounded-xl"
+              >
+                💧 Полити дерево чистою водою (+5%)
+              </button>
+            </div>
+          )}
+
+          {/* TAB 6: SAND TAB (ПІЩИНКИ ЧАСУ) */}
+          {activeTab === 'sand' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold">Сяючі піщинки часу</h2>
+                <button onClick={() => setActiveTab('counter')} className="text-xs text-[#1E8A69] font-bold">← Назад</button>
+              </div>
+              <div className="p-6 bg-black rounded-3xl border border-white/20 text-center">
+                <div className="text-4xl font-mono text-[#F59E0B] font-extrabold mb-2">
+                  {totalDays} піщинок
+                </div>
+                <p className="text-xs text-[#8FAAA3]">
+                  Кожен чистий день перетворюється на сяючий кристал. Кожні 10 зерен об’єднуються в кристал вищого рівня!
+                </p>
+                <div className="flex justify-center gap-3 mt-4 text-2xl">
+                  <span>✨</span>
+                  <span>💎</span>
+                  <span>⭐</span>
+                  <span>🌟</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: MORE (БІЛЬШЕ) */}
+          {activeTab === 'more' && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <h2 className="text-lg font-bold">Налаштування та історія</h2>
+
+              {/* ПОЧАТОК ШЛЯХУ */}
+              <div className="p-4 bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-2xl shadow-xs">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-base">📅</span>
+                  <h3 className="text-sm font-bold text-[#12302B] dark:text-[#E4F1ED]">
+                    Початок шляху
+                  </h3>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-[#55726B] dark:text-[#8FAAA3] mb-3 px-1">
+                  <span>Точний час старту:</span>
+                  <span className="font-semibold font-mono text-[#12302B] dark:text-[#E4F1ED]">
+                    {new Date(startDate).toLocaleString('uk-UA', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { sounds.playClick(); setIsSetupOpen(true); }}
+                    className="py-2.5 px-3 border border-[#B7CDC6] dark:border-[#2A4A43] hover:bg-white/60 dark:hover:bg-[#112723]/60 rounded-xl text-xs font-semibold text-[#12302B] dark:text-[#E4F1ED] flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <span>📅</span>
+                    <span>Змінити дату</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playClick();
+                      if (confirm('Скинути таймер і почати новий чистий шлях прямо зараз?')) {
+                        setStartDate(Date.now());
+                        alert('Новий старт зафіксовано! Ти впораєшся!');
+                      }
+                    }}
+                    className="py-2.5 px-3 border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-[#A33A2C] dark:hover:border-[#F08C7D] hover:bg-[#A33A2C]/5 rounded-xl text-xs font-semibold text-[#A33A2C] dark:text-[#F08C7D] flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <span>🔄</span>
+                    <span>Зірвався</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ЩОДЕННИЙ СТАН ТА НАСТРІЙ */}
+              <button
+                onClick={() => { sounds.playClick(); setActiveTab('state'); }}
+                className="w-full p-4 bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] hover:border-[#1E8A69] rounded-2xl shadow-xs text-left cursor-pointer transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#1E8A69]/10 dark:bg-[#4CC9A0]/15 flex items-center justify-center text-xl flex-none">
+                    😊
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-[#12302B] dark:text-[#E4F1ED] group-hover:text-[#1E8A69] transition-colors">
+                      Щоденний стан та настрій
+                    </h3>
+                    <p className="text-xs text-[#55726B] dark:text-[#8FAAA3]">
+                      Оцінка настрою, симптомів та самопочуття
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs text-[#1E8A69] dark:text-[#4CC9A0] font-bold">
+                  Відкрити →
+                </span>
+              </button>
+
+              {/* НАВІЩО Я КИНУВ КУРИТИ */}
+              <div className="p-4 bg-white/70 dark:bg-[#112723]/70 border border-[#B7CDC6] dark:border-[#2A4A43] rounded-2xl shadow-xs">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-base">✨</span>
+                  <h3 className="text-sm font-bold text-[#12302B] dark:text-[#E4F1ED]">
+                    Навіщо я кинув курити
+                  </h3>
+                </div>
+                <p className="text-xs text-[#55726B] dark:text-[#8FAAA3] mb-3">
+                  Твої особисті причини та мотивація для свободи від тютюну.
+                </p>
+
+                {/* Add reason input */}
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    maxLength={140}
+                    value={newReasonText}
+                    onChange={(e) => setNewReasonText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newReasonText.trim()) {
+                        sounds.playClick();
+                        setReasons(prev => [...prev, newReasonText.trim()]);
+                        setNewReasonText('');
+                      }
+                    }}
+                    placeholder="Наприклад: Здорове серце, дихати без задишки"
+                    className="flex-1 text-xs p-2.5 bg-white dark:bg-[#112723] border border-[#B7CDC6] dark:border-[#2A4A43] rounded-xl text-[#12302B] dark:text-[#E4F1ED] focus:outline-none focus:border-[#1E8A69]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newReasonText.trim()) return;
+                      sounds.playClick();
+                      setReasons(prev => [...prev, newReasonText.trim()]);
+                      setNewReasonText('');
+                    }}
+                    className="px-3 py-2 bg-[#1E8A69] text-white text-xs font-bold rounded-xl flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>+</span>
+                    <span>Додати</span>
+                  </button>
+                </div>
+
+                {/* Reasons list */}
+                <div className="space-y-1.5">
+                  {reasons.map((r, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between text-xs py-1.5 px-3 rounded-xl bg-white/60 dark:bg-[#112723]/60 border border-[#B7CDC6]/50"
+                    >
+                      <span className="text-[#12302B] dark:text-[#E4F1ED]">{r}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setReasons(prev => prev.filter((_, idx) => idx !== i));
+                        }}
+                        className="text-[#55726B] hover:text-red-500 p-1 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Standalone Download Section */}
+              <div className="p-4 bg-gradient-to-br from-[#1E8A69]/15 to-[#4CC9A0]/15 border-2 border-[#1E8A69] rounded-2xl">
+                <h4 className="text-xs font-bold text-[#12302B] dark:text-[#E4F1ED] mb-1">
+                  📥 Автономний файл додатку (.html)
+                </h4>
+                <p className="text-[11px] text-[#55726B] dark:text-[#8FAAA3] mb-3">
+                  Цей файл містить абсолютно весь код додатку в одному місці. Ви можете відкривати його офлайн без інтернету або завантажити в будь-який інший ШІ-кодер!
+                </p>
+                <button
+                  onClick={() => {
+                    const blob = new Blob([document.documentElement.outerHTML], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `bez-syharet-singlefile-${new Date().toISOString().slice(0, 10)}.html`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="w-full py-2 bg-[#1E8A69] hover:bg-[#187558] text-white text-xs font-bold rounded-xl shadow-xs"
+                >
+                  Завантажити цей HTML-файл на пристрій
+                </button>
+              </div>
+
+              {/* JSON Data Backup */}
+              <button
+                onClick={() => {
+                  const backup = { startDate, money, goals, treeState, reasons, daysRating };
+                  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `bez-syharet-data-${new Date().toISOString().slice(0, 10)}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="w-full py-2.5 border border-[#B7CDC6] dark:border-[#2A4A43] text-xs font-bold rounded-xl"
+              >
+                💾 Експортувати дані (JSON)
+              </button>
+            </div>
+          )}
+
+          {/* SOS Modal */}
+          {isSosOpen && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-[#112723] border border-white/20 p-6 rounded-3xl max-w-sm w-full text-center">
+                <span className="text-4xl mb-2 block">🫁</span>
+                <h3 className="text-base font-extrabold mb-1">Дихай разом зі мною</h3>
+                <p className="text-xs text-[#55726B] dark:text-[#8FAAA3] mb-4">
+                  Тяга триває всього 3 хвилини. Зроби повільний глибокий вдих на 4 секунди і видих на 6 секунд.
+                </p>
+                <button
+                  onClick={() => setIsSosOpen(false)}
+                  className="w-full py-2.5 bg-[#1E8A69] text-white font-bold text-xs rounded-xl"
+                >
+                  Тяга відступила, я в нормі
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Setup Date Modal */}
+          {isSetupOpen && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-[#112723] p-6 rounded-3xl max-w-sm w-full">
+                <h3 className="text-sm font-bold mb-3">Встановіть дату відмови</h3>
+                <input
+                  type="datetime-local"
+                  id="datePickerInput"
+                  defaultValue={new Date(startDate).toISOString().slice(0, 16)}
+                  className="w-full p-2 text-xs border rounded-xl mb-3 dark:bg-[#0A1614]"
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => setIsSetupOpen(false)} className="flex-1 py-1.5 border text-xs rounded-xl">Скасувати</button>
+                  <button
+                    onClick={() => {
+                      const inp = document.getElementById('datePickerInput');
+                      if (inp && inp.value) {
+                        const ms = new Date(inp.value).getTime();
+                        if (!isNaN(ms)) setStartDate(ms);
+                      }
+                      setIsSetupOpen(false);
+                    }}
+                    className="flex-1 py-1.5 bg-[#1E8A69] text-white text-xs font-bold rounded-xl"
+                  >
+                    Зберегти
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Persistent Bottom 6-Tab Bar */}
+          <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#E9F1EE]/95 dark:bg-[#0D1E1B]/95 backdrop-blur-md border-t border-[#B7CDC6] dark:border-[#2A4A43] py-2 px-2 sm:px-4 shadow-lg">
+            <div className="max-w-md mx-auto grid grid-cols-6 gap-0.5 text-center">
+              {/* 1. Відлік */}
+              <button
+                onClick={() => { sounds.playClick(); setActiveTab('counter'); }}
+                className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
+                  activeTab === 'counter' ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105' : 'text-[#55726B] dark:text-[#8FAAA3]'
+                }`}
+              >
+                <span className="text-lg leading-none">⏱️</span>
+                <span className="text-[10px] leading-tight">Відлік</span>
+              </button>
+
+              {/* 2. Здоров'я */}
+              <button
+                onClick={() => { sounds.playClick(); setActiveTab('health'); }}
+                className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
+                  activeTab === 'health' ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105' : 'text-[#55726B] dark:text-[#8FAAA3]'
+                }`}
+              >
+                <span className="text-lg leading-none">❤️</span>
+                <span className="text-[10px] leading-tight">Здоров’я</span>
+              </button>
+
+              {/* 3. SOS */}
+              <button
+                type="button"
+                id="nav-btn-sos"
+                onClick={() => { sounds.playClick(); setIsSosOpen(true); }}
+                className="py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all text-[#A33A2C] dark:text-[#F08C7D]"
+                aria-label="SOS"
+              >
+                <span className="text-lg leading-none">🚨</span>
+                <span className="text-[10px] leading-tight font-semibold">SOS</span>
+              </button>
+
+              {/* 4. Стан */}
+              <button
+                onClick={() => { sounds.playClick(); setActiveTab('state'); }}
+                className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer relative transition-all ${
+                  activeTab === 'state' ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105' : 'text-[#55726B] dark:text-[#8FAAA3]'
+                }`}
+              >
+                <span className="text-lg leading-none">😊</span>
+                <span className="text-[10px] leading-tight">Стан</span>
+              </button>
+
+              {/* 5. Цілі */}
+              <button
+                onClick={() => { sounds.playClick(); setActiveTab('money'); }}
+                className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
+                  activeTab === 'money' ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105' : 'text-[#55726B] dark:text-[#8FAAA3]'
+                }`}
+              >
+                <span className="text-lg leading-none">🎯</span>
+                <span className="text-[10px] leading-tight">Цілі</span>
+              </button>
+
+              {/* 6. Більше */}
+              <button
+                onClick={() => { sounds.playClick(); setActiveTab('more'); }}
+                className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
+                  activeTab === 'more' ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105' : 'text-[#55726B] dark:text-[#8FAAA3]'
+                }`}
+              >
+                <span className="text-lg leading-none">⚙️</span>
+                <span className="text-[10px] leading-tight">Більше</span>
+              </button>
+            </div>
+          </nav>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

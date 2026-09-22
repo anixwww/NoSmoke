@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@keyframes breathing {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px rgba(30, 138, 105, 0.4));
+  }
+  50% {
+    transform: scale(1.02);
+    filter: drop-shadow(0 0 8px rgba(76, 201, 160, 0.6));
+  }
+}
+
+.animate-breathing {
+  animation: breathing 4s ease-in-out infinite;
+}
+
+@keyframes pineCrownSway {
+  0% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(2.5deg);
+  }
+  75% {
+    transform: rotate(-2.5deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes pineMidSway {
+  0% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(1.2deg);
+  }
+  70% {
+    transform: rotate(-1.2deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes breezeDrift {
+  0% {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.6;
+  }
+  80% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+}
+
+.animate-pine-crown {
+  transform-origin: 60px 100px;
+  animation: pineCrownSway 4s ease-in-out infinite;
+}
+
+.animate-pine-mid {
+  transform-origin: 60px 100px;
+  animation: pineMidSway 5.5s ease-in-out infinite;
+}
+
+.animate-breeze {
+  animation: breezeDrift 3.5s ease-in-out infinite;
+}
+

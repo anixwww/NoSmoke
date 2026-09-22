@@ -1,0 +1,6 @@
+{
+  "name": "Без сигарет",
+  "description": "Енергоефективний трекер відмови від куріння з науковими шкалами регенерації організму, вибором саджанців дерева та трекером стану.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
