@@ -6,21 +6,30 @@ import {
   Streak,
   GoalsState,
   TreeState,
+  DragonState,
+  ZenIslandState,
+  OrbitVoyageState,
+  SavingsGoal,
+  CompletedGoal,
 } from './types';
 import { CounterTab } from './components/CounterTab';
 import { HealthTab } from './components/HealthTab';
-import { MoneyTab } from './components/MoneyTab';
 import { StateSurveyTab } from './components/StateSurveyTab';
 import { TreeTab } from './components/TreeTab';
 import { SandTab } from './components/SandTab';
+import { DragonTab } from './components/DragonTab';
+import { ZenIslandTab } from './components/ZenIslandTab';
+import { OrbitVoyageTab } from './components/OrbitVoyageTab';
 import { MoreTab } from './components/MoreTab';
 import { SosModal } from './components/SosModal';
 import { SetupModal, RelapseModal } from './components/Modals';
+import { OnboardingModal } from './components/OnboardingModal';
 import { StardustBackground } from './components/StardustBackground';
+import { IntermediatePromptModal } from './components/IntermediatePromptModal';
+import { calculateCigsAvoided, calculateTotalSaved } from './utils/moneyCalculator';
 import {
   Clock,
   HeartPulse,
-  Coins,
   Smile,
   Trees,
   Hourglass,
@@ -36,6 +45,9 @@ const STORAGE_KEYS = {
   REASONS: 'quit-smoking:reasons',
   GOALS: 'quit-smoking:goals',
   TREE: 'quit-smoking:tree',
+  DRAGON: 'quit-smoking:dragon',
+  ZEN: 'quit-smoking:zen-island',
+  ORBIT: 'quit-smoking:orbit',
   THEME: 'quit-smoking:theme',
   ACCENT: 'quit-smoking:accent'
 };
@@ -117,6 +129,106 @@ export default function App() {
     return { forest: [], current: null };
   });
 
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.TREE, JSON.stringify(treeState));
+    } catch {}
+  }, [treeState]);
+
+  const [dragonState, setDragonState] = React.useState<DragonState>(() => {
+    try {
+      const v = localStorage.getItem(STORAGE_KEYS.DRAGON);
+      if (v) {
+        const parsed = JSON.parse(v);
+        return {
+          ...parsed,
+          level: parsed.level || 1,
+          infernalDust: parsed.infernalDust || 0,
+          dungeonFloor: parsed.dungeonFloor || 1,
+          dungeonWins: parsed.dungeonWins || 0
+        };
+      }
+    } catch {}
+    return {
+      name: 'Астрал',
+      level: 1,
+      energy: 85,
+      stardust: 15,
+      infernalDust: 0,
+      dungeonFloor: 1,
+      dungeonWins: 0,
+      totalBreaths: 0,
+      unlockedConstellations: [],
+      relics: []
+    };
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.DRAGON, JSON.stringify(dragonState));
+    } catch {}
+  }, [dragonState]);
+
+  const [zenState, setZenState] = React.useState<ZenIslandState>(() => {
+    try {
+      const v = localStorage.getItem(STORAGE_KEYS.ZEN);
+      if (v) {
+        const p = JSON.parse(v);
+        return {
+          totalSounds: p.totalSounds || 0,
+          heardInTime: p.heardInTime || 0,
+          harmonyScore: p.harmonyScore || 0,
+          bestStreak: p.bestStreak || 0,
+          cravingsDefeated: p.cravingsDefeated || 0,
+          tremorsCalmed: p.tremorsCalmed || 0,
+          butterfliesMet: p.butterfliesMet || 0,
+          ghostsDispelled: p.ghostsDispelled || 0,
+          soundEnabled: p.soundEnabled ?? true
+        };
+      }
+    } catch {}
+    return {
+      totalSounds: 0,
+      heardInTime: 0,
+      harmonyScore: 0,
+      bestStreak: 0,
+      cravingsDefeated: 0,
+      tremorsCalmed: 0,
+      butterfliesMet: 0,
+      ghostsDispelled: 0,
+      soundEnabled: true
+    };
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ZEN, JSON.stringify(zenState));
+    } catch {}
+  }, [zenState]);
+
+  const [orbitState, setOrbitState] = React.useState<OrbitVoyageState>(() => {
+    try {
+      const v = localStorage.getItem(STORAGE_KEYS.ORBIT);
+      if (v) return JSON.parse(v);
+    } catch {}
+    return {
+      highScoreDistance: 0,
+      totalFlights: 0,
+      cravingsCleared: 0,
+      oxygenCollected: 0,
+      stardustCollected: 0,
+      unlockedShips: ['ship-aurora'],
+      selectedShipId: 'ship-aurora',
+      soundEnabled: true
+    };
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ORBIT, JSON.stringify(orbitState));
+    } catch {}
+  }, [orbitState]);
+
   const [theme, setTheme] = React.useState<'light' | 'dark' | 'system'>(() => {
     try {
       const v = localStorage.getItem(STORAGE_KEYS.THEME);
@@ -130,13 +242,47 @@ export default function App() {
       const v = localStorage.getItem(STORAGE_KEYS.ACCENT);
       if (v) return v;
     } catch {}
-    return 'green';
+    return 'indigo';
   });
 
   const [activeTab, setActiveTab] = React.useState<TabType>('counter');
   const [isSosOpen, setIsSosOpen] = React.useState(false);
   const [isSetupOpen, setIsSetupOpen] = React.useState(false);
   const [isRelapseOpen, setIsRelapseOpen] = React.useState(false);
+  const [isIntermediatePromptOpen, setIsIntermediatePromptOpen] = React.useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = React.useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('quit-smoking:onboarded');
+      if (!v) return true;
+    } catch {}
+    return false;
+  });
+  const [appToast, setAppToast] = React.useState<string | null>(null);
+
+  const [promptIntervalMinutes, setPromptIntervalMinutes] = React.useState<number>(() => {
+    try {
+      const v = localStorage.getItem('quit-smoking:prompt-interval-min');
+      if (v) {
+        const n = Number(v);
+        if (!isNaN(n) && n > 0) return n;
+      }
+    } catch {}
+    return 30; // default 30 mins
+  });
+
+  // 30-minute interval to prompt for intermediate state assessment
+  React.useEffect(() => {
+    const checkInterval = setInterval(() => {
+      const lastPrompt = Number(localStorage.getItem('quit-smoking:last-prompt') || 0);
+      const now = Date.now();
+      const intervalMs = promptIntervalMinutes * 60 * 1000;
+      if (!lastPrompt || now - lastPrompt >= intervalMs) {
+        setIsIntermediatePromptOpen(true);
+      }
+    }, 45000);
+
+    return () => clearInterval(checkInterval);
+  }, [promptIntervalMinutes]);
 
   // Time difference in milliseconds, updated strictly 1 time per second for MAX ENERGY EFFICIENCY!
   const [diffMs, setDiffMs] = React.useState<number>(() => Math.max(0, Date.now() - startDate));
@@ -202,7 +348,7 @@ export default function App() {
       }
     }
 
-    if (accent && accent !== 'green') {
+    if (accent) {
       root.setAttribute('data-accent', accent);
     } else {
       root.removeAttribute('data-accent');
@@ -294,9 +440,16 @@ export default function App() {
   const totalHours = Math.floor(totalFreeMs / (3600 * 1000));
   const totalSeconds = Math.floor(totalFreeMs / 1000);
 
-  // Calculations for money and cigarettes avoided
-  const cigsAvoided = money ? (totalFreeMs / (24 * 3600 * 1000)) * money.perDay : 0;
-  const totalSaved = money ? (cigsAvoided / money.packSize) * money.packPrice : 0;
+  // Total free time intervals (past streaks + active streak)
+  const intervals = React.useMemo(() => {
+    const list = streaks.map((s) => ({ from: s.from, to: s.to }));
+    list.push({ from: startDate, to: Date.now() });
+    return list;
+  }, [streaks, startDate, diffMs]);
+
+  // Calculations for money and cigarettes avoided (supports price changes over time)
+  const cigsAvoided = calculateCigsAvoided(intervals, money);
+  const totalSaved = calculateTotalSaved(intervals, money);
 
   // Dot badges
   const todayKey = (() => {
@@ -307,12 +460,24 @@ export default function App() {
   const hasRatedToday = !!days[todayKey];
   const canPlantTree = Math.floor(cigsAvoided / 300) > (treeState.forest.length + (treeState.current ? 1 : 0)) && !treeState.current;
 
+  const getAccentTextClass = (id: string) => {
+    switch (id) {
+      case 'indigo': return 'text-indigo-600 dark:text-indigo-400';
+      case 'gray': return 'text-slate-600 dark:text-slate-400';
+      case 'amber': return 'text-amber-600 dark:text-amber-400';
+      case 'rose': return 'text-rose-600 dark:text-rose-400';
+      case 'emerald': return 'text-emerald-600 dark:text-emerald-400';
+      case 'teal': return 'text-teal-600 dark:text-teal-400';
+      case 'sage': return 'text-stone-600 dark:text-stone-400';
+      case 'green':
+      default: return 'text-[#1E8A69] dark:text-[#4CC9A0]';
+    }
+  };
+
   // Handlers
   const handleSaveDate = (newMs: number) => {
     setStartDate(newMs);
     setDiffMs(Math.max(0, Date.now() - newMs));
-    setStreaks([]);
-    setGoals(prev => ({ ...prev, base: 0, done: [] }));
     setIsSetupOpen(false);
   };
 
@@ -338,11 +503,110 @@ export default function App() {
     setDiffMs(Math.max(0, Date.now() - last.from));
   };
 
+  const handleAddGoal = (name: string, amount?: number, targetDate?: string) => {
+    const newGoal: SavingsGoal = {
+      id: `goal_${Date.now()}`,
+      name,
+      amount: amount && amount > 0 ? amount : undefined,
+      targetDate: targetDate ? targetDate : undefined,
+      createdAt: Date.now()
+    };
+    setGoals(prev => ({
+      ...prev,
+      queue: [...prev.queue, newGoal]
+    }));
+  };
+
+  const handleCompleteGoal = (goalId: string) => {
+    setGoals(prev => {
+      const goal = prev.queue.find(g => g.id === goalId);
+      if (!goal) return prev;
+      const newQueue = prev.queue.filter(g => g.id !== goalId);
+      const completed: CompletedGoal = {
+        ...goal,
+        at: Date.now(),
+        total: goal.amount || totalSaved
+      };
+      return {
+        ...prev,
+        base: goal.amount ? prev.base + goal.amount : prev.base,
+        queue: newQueue,
+        done: [completed, ...prev.done]
+      };
+    });
+  };
+
+  const handleDeleteGoal = (goalId: string) => {
+    setGoals(prev => ({
+      ...prev,
+      queue: prev.queue.filter(g => g.id !== goalId),
+      done: prev.done.filter(g => g.id !== goalId)
+    }));
+  };
+
+  const handleAddReason = (newReason: string) => {
+    const trimmed = newReason.trim();
+    if (!trimmed) return;
+    setReasons((prev) => [...prev, trimmed]);
+  };
+
+  const handleDeleteReason = (index: number) => {
+    setReasons((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSaveDayRating = (dateKey: string, rating: DayRating) => {
     setDays((prev) => ({
       ...prev,
       [dateKey]: rating
     }));
+  };
+
+  const handleIntermediatePromptSubmit = (entryData: {
+    mood: number;
+    craving: number;
+    anxiety: number;
+    energy: number;
+    balance: number;
+    focus: number;
+    note: string;
+  }) => {
+    const d = new Date();
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    const todayKey = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    const existing = days[todayKey] || {
+      mood: entryData.mood,
+      craving: entryData.craving,
+      anxiety: entryData.anxiety,
+      surveys: [],
+      entries: []
+    };
+
+    const newEntry = {
+      id: Math.random().toString(36).substr(2, 9),
+      time: timeStr,
+      mood: entryData.mood,
+      craving: entryData.craving,
+      anxiety: entryData.anxiety,
+      energy: entryData.energy,
+      balance: entryData.balance,
+      focus: entryData.focus,
+      note: entryData.note
+    };
+
+    const updatedSurveys = [...(existing.surveys || existing.entries || []), newEntry];
+    handleSaveDayRating(todayKey, {
+      ...existing,
+      craving: entryData.craving,
+      anxiety: entryData.anxiety,
+      mood: entryData.mood,
+      surveys: updatedSurveys,
+      entries: updatedSurveys
+    });
+
+    localStorage.setItem('quit-smoking:last-prompt', String(Date.now()));
+    setIsIntermediatePromptOpen(false);
   };
 
   const handleDeleteDayRating = (dateKey: string) => {
@@ -361,7 +625,24 @@ export default function App() {
     if (backup.reasons) setReasons(backup.reasons);
     if (backup.goals) setGoals(backup.goals);
     if (backup.tree) setTreeState(backup.tree);
-    alert('Дані успішно відновлено!');
+    setAppToast('Дані успішно відновлено! ✨');
+    setTimeout(() => setAppToast(null), 3500);
+  };
+
+  const handleCompleteOnboarding = (data: {
+    userName: string;
+    startDate: number;
+    money: MoneySettings;
+    mainReason: string;
+  }) => {
+    setStartDate(data.startDate);
+    localStorage.setItem(STORAGE_KEYS.START, String(data.startDate));
+    setMoney(data.money);
+    localStorage.setItem(STORAGE_KEYS.MONEY, JSON.stringify(data.money));
+    setReasons((prev) => [data.mainReason, ...prev.filter(r => r !== data.mainReason)]);
+    setIsOnboardingOpen(false);
+    setAppToast(`Ласкаво просимо, ${data.userName}! Ваш шлях розпочато 🌟`);
+    setTimeout(() => setAppToast(null), 4000);
   };
 
   return (
@@ -386,7 +667,7 @@ export default function App() {
             goals={goals}
             activeGoalName={goals.queue[0]?.name}
             activeGoalPct={
-              goals.queue[0]
+              goals.queue[0] && goals.queue[0].amount
                 ? Math.min(
                     100,
                     Math.floor(
@@ -399,25 +680,26 @@ export default function App() {
             onOpenSetup={() => setIsSetupOpen(true)}
             onOpenRelapse={() => setIsRelapseOpen(true)}
             onSwitchTab={setActiveTab}
+            onAddGoal={handleAddGoal}
+            onCompleteGoal={handleCompleteGoal}
+            onDeleteGoal={handleDeleteGoal}
             dayRatings={days}
+            dragonState={dragonState}
+            zenState={zenState}
+            orbitState={orbitState}
+            accent={accent}
+            onUpdateReasons={setReasons}
+            onUpdateMoney={(newMoney) => {
+              setMoney(newMoney);
+              try {
+                localStorage.setItem(STORAGE_KEYS.MONEY, JSON.stringify(newMoney));
+              } catch {}
+            }}
           />
         )}
 
         {activeTab === 'health' && (
           <HealthTab diffMs={totalFreeMs} startDate={startDate} />
-        )}
-
-        {activeTab === 'money' && (
-          <MoneyTab
-            money={money}
-            totalSaved={totalSaved}
-            cigsAvoided={cigsAvoided}
-            daysCount={totalDays}
-            diffMs={totalFreeMs}
-            goals={goals}
-            onSaveMoneySettings={setMoney}
-            onUpdateGoals={setGoals}
-          />
         )}
 
         {activeTab === 'state' && (
@@ -433,6 +715,7 @@ export default function App() {
             treeState={treeState}
             money={money}
             cigsAvoided={cigsAvoided}
+            totalSeconds={totalSeconds}
             onUpdateTreeState={setTreeState}
             onSwitchTab={setActiveTab}
           />
@@ -442,6 +725,36 @@ export default function App() {
           <SandTab daysCount={totalSeconds} onSwitchTab={setActiveTab} />
         )}
 
+        {activeTab === 'dragon' && (
+          <DragonTab
+            cigsAvoided={cigsAvoided}
+            totalFreeMs={totalFreeMs}
+            dragonState={dragonState}
+            onUpdateDragonState={setDragonState}
+            onSwitchTab={setActiveTab}
+          />
+        )}
+
+        {activeTab === 'zen' && (
+          <ZenIslandTab
+            cigsAvoided={cigsAvoided}
+            zenState={zenState}
+            onUpdateZenState={setZenState}
+            onSwitchTab={setActiveTab}
+          />
+        )}
+
+        {activeTab === 'orbit' && (
+          <OrbitVoyageTab
+            cigsAvoided={cigsAvoided}
+            orbitState={orbitState}
+            dragonState={dragonState}
+            onUpdateOrbitState={setOrbitState}
+            onUpdateDragonState={setDragonState}
+            onSwitchTab={setActiveTab}
+          />
+        )}
+
         {activeTab === 'more' && (
           <MoreTab
             reasons={reasons}
@@ -449,106 +762,93 @@ export default function App() {
             currentStart={startDate}
             totalFreeMs={totalFreeMs}
             longestStreakMs={longestStreakMs}
+            goals={goals}
+            totalSaved={totalSaved}
+            cigsAvoided={cigsAvoided}
             money={money}
             days={days}
-            goals={goals}
-            treeState={treeState}
-            theme={theme}
-            accent={accent}
-            onUpdateReasons={setReasons}
-            onSetTheme={setTheme}
-            onSetAccent={setAccent}
+            promptIntervalMinutes={promptIntervalMinutes}
+            currentAccent={accent}
+            onUpdateAccent={(val) => {
+              setAccent(val);
+              try {
+                localStorage.setItem(STORAGE_KEYS.ACCENT, val);
+              } catch {}
+            }}
+            onUpdatePromptInterval={(val) => {
+              setPromptIntervalMinutes(val);
+              try {
+                localStorage.setItem('quit-smoking:prompt-interval-min', String(val));
+              } catch {}
+            }}
+            onUpdateMoney={setMoney}
+            onAddGoal={handleAddGoal}
+            onCompleteGoal={handleCompleteGoal}
+            onDeleteGoal={handleDeleteGoal}
+            onAddReason={handleAddReason}
+            onDeleteReason={handleDeleteReason}
             onUndoLastRelapse={handleUndoLastRelapse}
-            onRestoreAllData={handleRestoreAllData}
             onOpenSetup={() => setIsSetupOpen(true)}
             onOpenRelapse={() => setIsRelapseOpen(true)}
-            onSwitchTab={setActiveTab}
+            onOpenOnboarding={() => setIsOnboardingOpen(true)}
           />
         )}
       </main>
 
       {/* Persistent Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#E9F1EE]/95 dark:bg-[#121212]/95 backdrop-blur-md border-t border-[#B7CDC6] dark:border-[#2d2d35] py-2 px-2 sm:px-4 shadow-lg">
-        <div className="max-w-md mx-auto grid grid-cols-6 gap-0.5 text-center">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#121212]/95 backdrop-blur-md border-t border-slate-200 dark:border-[#2d2d35] py-2 px-2 sm:px-4 shadow-lg">
+        <div className="max-w-md mx-auto grid grid-cols-4 gap-0.5 text-center">
           {/* 1. Counter / Home */}
           <button
             type="button"
             onClick={() => setActiveTab('counter')}
             className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
               activeTab === 'counter'
-                ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105'
-                : 'text-[#55726B] dark:text-[#8FAAA3] font-medium hover:text-[#12302B]'
+                ? `${getAccentTextClass(accent)} font-bold scale-105`
+                : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-800 dark:hover:text-[#f4f4f5]'
             }`}
           >
             <Clock className="w-5 h-5" />
             <span className="text-[10px] sm:text-[11px] leading-tight">Головна</span>
           </button>
 
-          {/* 2. Health */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('health')}
-            className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
-              activeTab === 'health'
-                ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105'
-                : 'text-[#55726B] dark:text-[#8FAAA3] font-medium hover:text-[#12302B]'
-            }`}
-          >
-            <HeartPulse className="w-5 h-5" />
-            <span className="text-[10px] sm:text-[11px] leading-tight">Здоров’я</span>
-          </button>
-
-          {/* 3. SOS */}
+          {/* 2. SOS */}
           <button
             type="button"
             id="nav-btn-sos"
             onClick={() => setIsSosOpen(true)}
-            className="py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all text-[#55726B] dark:text-[#8FAAA3] hover:text-[#12302B] dark:hover:text-[#E4F1ED]"
+            className="py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-[#E4F1ED]"
             aria-label="SOS"
           >
             <ShieldAlert className="w-5 h-5 text-[#A33A2C] dark:text-[#F08C7D]" />
             <span className="text-[10px] sm:text-[11px] leading-tight font-semibold text-[#A33A2C] dark:text-[#F08C7D]">SOS</span>
           </button>
 
-          {/* 4. State (Стан) */}
+          {/* 3. State (Стан) */}
           <button
             type="button"
             onClick={() => setActiveTab('state')}
             className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer relative transition-all ${
               activeTab === 'state'
-                ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105'
-                : 'text-[#55726B] dark:text-[#8FAAA3] font-medium hover:text-[#12302B]'
+                ? `${getAccentTextClass(accent)} font-bold scale-105`
+                : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-800 dark:hover:text-[#f4f4f5]'
             }`}
           >
             {!hasRatedToday && (
-              <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-[#C9701A] ring-2 ring-[#E9F1EE] dark:ring-[#0D1E1B]" />
+              <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-[#C9701A] ring-2 ring-white dark:ring-[#0D1E1B]" />
             )}
             <Smile className="w-5 h-5" />
             <span className="text-[10px] sm:text-[11px] leading-tight">Стан</span>
           </button>
 
-          {/* 5. Money / Goals */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('money')}
-            className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
-              activeTab === 'money'
-                ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105'
-                : 'text-[#55726B] dark:text-[#8FAAA3] font-medium hover:text-[#12302B]'
-            }`}
-          >
-            <Coins className="w-5 h-5" />
-            <span className="text-[10px] sm:text-[11px] leading-tight">Гроші</span>
-          </button>
-
-          {/* 6. More */}
+          {/* 4. More */}
           <button
             type="button"
             onClick={() => setActiveTab('more')}
             className={`py-1.5 flex flex-col items-center gap-0.5 rounded-xl cursor-pointer transition-all ${
               activeTab === 'more'
-                ? 'text-[#1E8A69] dark:text-[#4CC9A0] font-bold scale-105'
-                : 'text-[#55726B] dark:text-[#8FAAA3] font-medium hover:text-[#12302B]'
+                ? `${getAccentTextClass(accent)} font-bold scale-105`
+                : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-800 dark:hover:text-[#f4f4f5]'
             }`}
           >
             <MoreHorizontal className="w-5 h-5" />
@@ -564,13 +864,25 @@ export default function App() {
           onClose={() => setIsSosOpen(false)}
           onCravingOver={() => {
             setIsSosOpen(false);
-            alert('Чудово! Чергову хвилю тяги успішно подолано!');
+            setAppToast('Чудово! Чергову хвилю тяги успішно подолано! 🏆');
+            setTimeout(() => setAppToast(null), 4000);
           }}
           onRelapse={() => {
             setIsSosOpen(false);
             setIsRelapseOpen(true);
           }}
+          onLaunchOrbit={() => {
+            setIsSosOpen(false);
+            setActiveTab('orbit');
+          }}
         />
+      )}
+
+      {/* Floating Notification Toast */}
+      {appToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#12302B] dark:bg-[#1E8A69] text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-full shadow-xl border border-white/20 animate-fade-in flex items-center gap-2">
+          <span>{appToast}</span>
+        </div>
       )}
 
       <SetupModal
@@ -585,6 +897,20 @@ export default function App() {
         currentStart={startDate}
         onClose={() => setIsRelapseOpen(false)}
         onConfirmRelapse={handleConfirmRelapse}
+      />
+
+      <IntermediatePromptModal
+        isOpen={isIntermediatePromptOpen}
+        onClose={() => {
+          setIsIntermediatePromptOpen(false);
+          localStorage.setItem('quit-smoking:last-prompt', String(Date.now()));
+        }}
+        onSubmit={handleIntermediatePromptSubmit}
+      />
+
+      <OnboardingModal
+        isOpen={isOnboardingOpen}
+        onComplete={handleCompleteOnboarding}
       />
     </div>
   );

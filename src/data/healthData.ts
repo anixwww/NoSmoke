@@ -128,24 +128,43 @@ export const HEALTH_MILESTONES: HealthMilestone[] = [
 ];
 
 export function getBodySystemsRecovery(diffMs: number): BodySystemStatus[] {
-  // 1. Детокс нікотину та CO (повний цикл ~72 години)
+  // 1. Детокс нікотину та CO (~72 години)
   const detoxPct = Math.min(100, (diffMs / (72 * HOUR)) * 100);
-  // 2. Серцево-судинна система (перший етап нормалізації ~1 рік)
-  const cardioPct = Math.min(100, (diffMs / (365 * DAY)) * 100);
-  // 3. Легені та дихання (глибока регенерація епітелію ~9 місяців = 270 днів)
-  const lungsPct = Math.min(100, (diffMs / (270 * DAY)) * 100);
-  // 4. Смакові рецептори та нюх (повний цикл ~14 днів)
+  // 2. Смакові рецептори та нюх (~14 днів)
   const sensesPct = Math.min(100, (diffMs / (14 * DAY)) * 100);
-  // 5. Нервова система та дофамінові рецептори (~90 днів)
+  // 3. Бронхіальний епітелій та подолання задишки (~30 днів)
+  const bronchPct = Math.min(100, (diffMs / (30 * DAY)) * 100);
+  // 4. Нервова система та дофамінові рецептори (~90 днів)
   const neuroPct = Math.min(100, (diffMs / (90 * DAY)) * 100);
+  // 5. Життєва ємність легень та альвеоли (~270 днів = 9 місяців)
+  const lungsPct = Math.min(100, (diffMs / (270 * DAY)) * 100);
+  // 6. Серцево-судинна система (ризик ішемії -50% ~ 1 рік / 365 днів)
+  const cardioPct = Math.min(100, (diffMs / (365 * DAY)) * 100);
+  // 7. Коронарні артерії та еластичність ендотелію (~2 роки / 730 днів)
+  const coronaryPct = Math.min(100, (diffMs / (730 * DAY)) * 100);
+  // 8. Клітинне очищення легень та антионко захист (~5 років / 1825 днів)
+  const cancerRiskPct = Math.min(100, (diffMs / (1825 * DAY)) * 100);
+  // 9. Цереброваскулярна система та судини мозку (~10 років / 3650 днів)
+  const brainPct = Math.min(100, (diffMs / (3650 * DAY)) * 100);
+  // 10. Повне відновлення очікуваної тривалості життя (~15 років / 5475 днів)
+  const longevityPct = Math.min(100, (diffMs / (5475 * DAY)) * 100);
 
   function remaining(targetMs: number) {
     if (diffMs >= targetMs) return 'Повністю відновлено';
     const left = targetMs - diffMs;
-    const d = Math.floor(left / DAY);
+    const totalDays = Math.floor(left / DAY);
+    if (totalDays >= 365) {
+      const yrs = (totalDays / 365).toFixed(1);
+      return `Ще ~${yrs} р.`;
+    }
+    if (totalDays >= 30) {
+      const mos = Math.round(totalDays / 30);
+      return `Ще ~${mos} міс.`;
+    }
+    const d = totalDays;
     const h = Math.floor((left % DAY) / HOUR);
     if (d > 0) return `Ще ${d} дн.`;
-    return `Ще ${h} год.`;
+    return `Ще ${Math.max(1, h)} год.`;
   }
 
   return [
@@ -166,12 +185,12 @@ export function getBodySystemsRecovery(diffMs: number): BodySystemStatus[] {
       timeRemainingText: remaining(14 * DAY)
     },
     {
-      name: 'Легені та дихальні шляхи',
-      icon: '🫁',
-      color: '#10B981',
-      progress: lungsPct,
-      description: lungsPct >= 100 ? 'Вії бронхів очистили легені від смол; максимальний об’єм вдиху.' : 'Очищення альвеол, відновлення рухливості миготливого епітелію.',
-      timeRemainingText: remaining(270 * DAY)
+      name: 'Бронхіальний захист і кашель',
+      icon: '🌬️',
+      color: '#06B6D4',
+      progress: bronchPct,
+      description: bronchPct >= 100 ? 'Вії бронхів відновили самоочищення; кашель курця минув.' : 'Відновлення миготливого епітелію та очищення від мокротиння.',
+      timeRemainingText: remaining(30 * DAY)
     },
     {
       name: 'Дофамінові рецептори та нерви',
@@ -182,12 +201,52 @@ export function getBodySystemsRecovery(diffMs: number): BodySystemStatus[] {
       timeRemainingText: remaining(90 * DAY)
     },
     {
+      name: 'Легені та дихальні шляхи',
+      icon: '🫁',
+      color: '#10B981',
+      progress: lungsPct,
+      description: lungsPct >= 100 ? 'Вії бронхів очистили легені від смол; максимальний об’єм вдиху.' : 'Очищення альвеол, відновлення рухливості миготливого епітелію.',
+      timeRemainingText: remaining(270 * DAY)
+    },
+    {
       name: 'Серцево-судинна система',
       icon: '❤️',
       color: '#E05353',
       progress: cardioPct,
-      description: cardioPct >= 100 ? 'Ризик інфаркту скорочено на 50%; стінки артерій еластичні.' : 'Зменшення спазму судин, зниження тромбоутворення.',
+      description: cardioPct >= 100 ? 'Ризик інфаркту скорочено на 50%; стінки артерій еластичні.' : 'Зменшення спазму судин, нормалізація тиску та пульсу.',
       timeRemainingText: remaining(365 * DAY)
+    },
+    {
+      name: 'Еластичність артерій та ендотелій',
+      icon: '⚡',
+      color: '#F59E0B',
+      progress: coronaryPct,
+      description: coronaryPct >= 100 ? 'Внутрішня вистилка судин повністю очистилася від хронічного запалення.' : 'Регенерація ендотеліальних клітин та розширення периферичних судин.',
+      timeRemainingText: remaining(730 * DAY)
+    },
+    {
+      name: 'Клітинне оновлення легень і ДНК',
+      icon: '🛡️',
+      color: '#14B8A6',
+      progress: cancerRiskPct,
+      description: cancerRiskPct >= 100 ? 'Ризик раку легень, ротової порожнини та стравоходу впав удвічі.' : 'Глибоке клітинне самовідновлення легеневої тканини та відновлення пошкоджень ДНК.',
+      timeRemainingText: remaining(1825 * DAY)
+    },
+    {
+      name: 'Судини мозку та захист від інсульту',
+      icon: '🧠',
+      color: '#6366F1',
+      progress: brainPct,
+      description: brainPct >= 100 ? 'Ризик інсульту впав до рівня людини, яка ніколи не курила.' : 'Стабілізація церебрального кровотоку та усунення ризику мікротромбів.',
+      timeRemainingText: remaining(3650 * DAY)
+    },
+    {
+      name: 'Повна тривалість життя (як у некурця)',
+      icon: '👑',
+      color: '#10B981',
+      progress: longevityPct,
+      description: longevityPct >= 100 ? 'Очікувана тривалість життя повністю зрівнялася з людиною, що ніколи не палила.' : 'Максимальна клітинна реабілітація всіх систем організму.',
+      timeRemainingText: remaining(5475 * DAY)
     }
   ];
 }
